@@ -45,8 +45,9 @@ freeform/
       WidgetProvider.java               виджет-плитка на рабочий стол
       WidgetConfigActivity.java         выбор сценария при размещении виджета
     res/                                widget layout, tile bg, appwidget-provider
-  toolchain/                            JDK 17 + Android build-tools 34 + android.jar(33) + adb + debug.keystore
-  build.sh                              самодостаточная сборка (без системного SDK)
+  toolchain/                            JDK 17 + build-tools 34 + android.jar(33) + adb  (НЕ в git — см. fetch-toolchain.sh)
+  fetch-toolchain.sh                    качает toolchain (JDK+SDK) в ./toolchain, точные пиннутые версии
+  build.sh                              самодостаточная сборка (при первом запуске сама зовёт fetch-toolchain.sh)
   navisplit.apk                         последняя собранная сборка
   screenshots/                          скриншоты прогресса с бокса
 ```
@@ -56,7 +57,11 @@ freeform/
 ```
 bash build.sh
 ```
-Выход: `navisplit.apk` в корне. Тулчейн локальный, интернет не нужен.
+Выход: `navisplit.apk` в корне.
+
+**Первый запуск** скачивает тулчейн (JDK 17 + Android SDK, ~660 МБ) в `./toolchain`
+через `fetch-toolchain.sh` (нужен интернет и macOS). Дальше тулчейн локальный, сборка офлайн.
+Скачать отдельно: `bash fetch-toolchain.sh`.
 
 ## Установка / тест на боксе
 

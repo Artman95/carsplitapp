@@ -1,9 +1,16 @@
 #!/bin/bash
 # Self-contained build for the "Мультиокно" (navisplit) app.
-# Uses the bundled toolchain in ./toolchain — no system JDK/Android SDK needed.
+# Uses a self-contained toolchain in ./toolchain (fetched by fetch-toolchain.sh
+# on first run) — no system JDK/Android SDK needed.
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 AB="$DIR/toolchain"
+
+# Bootstrap the toolchain on first run (downloads JDK + Android SDK into ./toolchain).
+if [ ! -x "$AB/android-14/aapt2" ] || ! ls -d "$AB"/jdk-*/Contents/Home >/dev/null 2>&1; then
+  echo "[0] toolchain missing -> fetching (first run, needs internet)"
+  bash "$DIR/fetch-toolchain.sh"
+fi
 APP="$DIR/app"
 BT="$AB/android-14"
 OUT="$DIR/build"
