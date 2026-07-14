@@ -1,6 +1,7 @@
 package com.artman.navisplit;
 
 import android.app.ActivityOptions;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Point;
@@ -11,16 +12,99 @@ import android.util.Log;
 import android.view.WindowManager;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.Method;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Freeform tiling launcher shared by the config UI, the desktop widget and shortcuts. */
 public class Launcher {
 
     static final int WINDOWING_MODE_FREEFORM = 5;
     static boolean unsealed = false;
+    static Boolean rootCache;
 
-    static void launchPair(final Context ctx, Scenario s) {
+    static void launchPair(final Context ctx, final Scenario s) {
         if (s == null) return;
+        final Context app = ctx.getApplicationContext();
+        // su calls block; never run them on the UI thread
+        new Thread(() -> {
+            if (!tilePairViaRoot(app, s)) {
+                new Handler(Looper.getMainLooper()).post(() -> launchNonRoot(app, s));
+            }
+        }).start();
+    }
+
+    // ---- root path: re-tiles even ALREADY-RUNNING apps (the non-root path can't) ----
+
+    /** @return true if root handled it; false to fall back to the non-root path. */
+    static boolean tilePairViaRoot(Context ctx, Scenario s) {
+        if (!hasRoot()) return false;
+        Point sz = realSize(ctx);
+        int w = sz.x, h = sz.y;
+        int split = Math.round(w * s.leftPercent / 100f);
+        boolean left = tileViaRoot(ctx, s.left, 0, 0, split, h);
+        boolean right = tileViaRoot(ctx, s.right, split, 0, w, h);
+        return left && right;
+    }
+
+    /** am start --windowingMode 5 flips/launches the task into freeform; am task resize then
+     *  applies the tile bounds (a no-op on a fullscreen task, hence the windowing-mode flip first). */
+    static boolean tileViaRoot(Context ctx, String pkg, int l, int t, int r, int b) {
+        Intent li = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+        ComponentName cn = li == null ? null : li.getComponent();
+        if (cn == null) { toast(ctx, "Не найдено: " + pkg); return false; }
+        runSu("am start --windowingMode " + WINDOWING_MODE_FREEFORM
+                + " -n " + cn.getPackageName() + "/" + cn.getClassName());
+        String tid = null;
+        for (int i = 0; i < 10 && tid == null; i++) {
+            tid = taskIdOf(pkg);
+            if (tid == null) sleep(300);
+        }
+        if (tid == null) { Log.w("navisplit", "no taskId for " + pkg); return false; }
+        runSu("am task resize " + tid + " " + l + " " + t + " " + r + " " + b);
+        return true;
+    }
+
+    static String taskIdOf(String pkg) {
+        Matcher m = Pattern.compile("#(\\d+) type=standard A=\\d+:" + Pattern.quote(pkg) + "(?:\\s|$)")
+                .matcher(runSu("dumpsys activity activities"));
+        return m.find() ? m.group(1) : null;
+    }
+
+    static boolean hasRoot() {
+        if (rootCache == null) rootCache = runSu("id").contains("uid=0");
+        return rootCache;
+    }
+
+    /** Run one command as root; returns stdout ("" if su is absent/denied). */
+    static String runSu(String cmd) {
+        StringBuilder out = new StringBuilder();
+        try {
+            Process p = Runtime.getRuntime().exec(new String[]{"su", "-c", cmd});
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                for (String line; (line = br.readLine()) != null; ) out.append(line).append('\n');
+            }
+            p.waitFor();
+        } catch (Exception e) {
+            Log.w("navisplit", "su failed: " + e);
+        }
+        return out.toString();
+    }
+
+    static void sleep(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
+    }
+
+    static void toast(Context ctx, String msg) {
+        new Handler(Looper.getMainLooper()).post(
+                () -> Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show());
+    }
+
+    // ---- non-root fallback: only tiles apps that aren't already running ----
+
+    static void launchNonRoot(final Context ctx, Scenario s) {
         unsealHiddenApi();
         Point sz = realSize(ctx);
         // keep window bottoms above the navigation bar so its ◁○□ buttons
