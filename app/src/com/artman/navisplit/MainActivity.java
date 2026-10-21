@@ -81,6 +81,12 @@ public class MainActivity extends Activity {
         clp.topMargin = dp(10);
         root.addView(closeAll, clp);
 
+        Button setupBtn = new Button(this);
+        setupBtn.setText("⚙ Настройка бокса");
+        setupBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        setupBtn.setOnClickListener(v -> startActivity(new Intent(this, SetupActivity.class)));
+        root.addView(setupBtn, new LinearLayout.LayoutParams(clp));
+
         TextView hint = new TextView(this);
         hint.setText("Короткий тап — запустить. Долгий тап — изменить или удалить.\n"
                 + "Плитки на рабочий стол: добавь виджет «Мультиокно» и выбери сценарий.");
