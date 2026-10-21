@@ -22,60 +22,103 @@ import java.util.regex.Pattern;
 public class Launcher {
 
     static final int WINDOWING_MODE_FREEFORM = 5;
+    /** The box draws ◁○□ with a third-party overlay (nu.nav.bar, 32dp) the system doesn't report as an inset. */
+    static final int OVERLAY_NAV_BAR_DP = 32;
     static boolean unsealed = false;
-    static Boolean rootCache;
+    /** Privileged command channel once found: "su" (root) or "adb" (shell uid via the box's adbd). */
+    static String privMode;
 
     static void launchPair(final Context ctx, final Scenario s) {
         if (s == null) return;
         final Context app = ctx.getApplicationContext();
-        // su calls block; never run them on the UI thread
+        // su/adb calls block; never run them on the UI thread
         new Thread(() -> {
-            if (!tilePairViaRoot(app, s)) {
+            if (!tilePairPrivileged(app, s)) {
                 new Handler(Looper.getMainLooper()).post(() -> launchNonRoot(app, s));
             }
         }).start();
     }
 
-    // ---- root path: re-tiles even ALREADY-RUNNING apps (the non-root path can't) ----
+    /** Closes every freeform window (the apps keep running; only their windows go). */
+    static void closeAll(final Context ctx) {
+        final Context app = ctx.getApplicationContext();
+        new Thread(() -> {
+            if (!hasPriv(app)) { toast(app, "Нет доступа к shell (adb) — закрыть окна нельзя"); return; }
+            int n = 0;
+            Matcher m = Pattern.compile("RootTask id=(\\d+)[^\\n]*\\n[^\\n]*mWindowingMode=freeform")
+                    .matcher(runPriv(app, "am stack list"));
+            while (m.find()) {
+                runPriv(app, "am stack remove " + m.group(1));
+                n++;
+            }
+            toast(app, n == 0 ? "Открытых окон нет" : "Закрыто окон: " + n);
+        }).start();
+    }
 
-    /** @return true if root handled it; false to fall back to the non-root path. */
-    static boolean tilePairViaRoot(Context ctx, Scenario s) {
-        if (!hasRoot()) return false;
+    // ---- privileged path (root or adb shell): re-tiles even ALREADY-RUNNING apps ----
+
+    /** @return true if it handled the launch; false to fall back to the non-root path. */
+    static boolean tilePairPrivileged(Context ctx, Scenario s) {
+        if (!hasPriv(ctx)) return false;
         Point sz = realSize(ctx);
-        int w = sz.x, h = sz.y;
+        int w = sz.x;
+        // below the status bar and above the navigation bar, like the non-root path
+        float density = ctx.getResources().getDisplayMetrics().density;
+        int top = statusBarHeight(ctx);
+        int gap = Math.round(4 * density);
+        int bottom = sz.y - Math.max(navBarHeight(ctx), Math.round(OVERLAY_NAV_BAR_DP * density)) - gap;
         int split = Math.round(w * s.leftPercent / 100f);
-        boolean left = tileViaRoot(ctx, s.left, 0, 0, split, h);
-        boolean right = tileViaRoot(ctx, s.right, split, 0, w, h);
+        boolean left = tilePrivileged(ctx, s.left, 0, top, split, bottom);
+        boolean right = tilePrivileged(ctx, s.right, split, top, w, bottom);
         return left && right;
     }
 
     /** am start --windowingMode 5 flips/launches the task into freeform; am task resize then
      *  applies the tile bounds (a no-op on a fullscreen task, hence the windowing-mode flip first). */
-    static boolean tileViaRoot(Context ctx, String pkg, int l, int t, int r, int b) {
+    static boolean tilePrivileged(Context ctx, String pkg, int l, int t, int r, int b) {
         Intent li = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
         ComponentName cn = li == null ? null : li.getComponent();
         if (cn == null) { toast(ctx, "Не найдено: " + pkg); return false; }
-        runSu("am start --windowingMode " + WINDOWING_MODE_FREEFORM
+        runPriv(ctx, "am start --windowingMode " + WINDOWING_MODE_FREEFORM
                 + " -n " + cn.getPackageName() + "/" + cn.getClassName());
         String tid = null;
         for (int i = 0; i < 10 && tid == null; i++) {
-            tid = taskIdOf(pkg);
+            tid = taskIdOf(ctx, pkg);
             if (tid == null) sleep(300);
         }
         if (tid == null) { Log.w("navisplit", "no taskId for " + pkg); return false; }
-        runSu("am task resize " + tid + " " + l + " " + t + " " + r + " " + b);
+        runPriv(ctx, "am task resize " + tid + " " + l + " " + t + " " + r + " " + b);
         return true;
     }
 
-    static String taskIdOf(String pkg) {
+    static String taskIdOf(Context ctx, String pkg) {
         Matcher m = Pattern.compile("#(\\d+) type=standard A=\\d+:" + Pattern.quote(pkg) + "(?:\\s|$)")
-                .matcher(runSu("dumpsys activity activities"));
+                .matcher(runPriv(ctx, "dumpsys activity activities"));
         return m.find() ? m.group(1) : null;
     }
 
-    static boolean hasRoot() {
-        if (rootCache == null) rootCache = runSu("id").contains("uid=0");
-        return rootCache;
+    /** Finds a working channel (su first, then adb); only a success is cached. */
+    static boolean hasPriv(Context ctx) {
+        if (privMode != null) return true;
+        if (runSu("id").contains("uid=0")) { privMode = "su"; return true; }
+        try {
+            if (Adb.shell(ctx, "id").contains("uid=2000")) { privMode = "adb"; return true; }
+        } catch (Exception e) {
+            Log.w("navisplit", "adb unavailable: " + e);
+        }
+        return false;
+    }
+
+    static String runPriv(Context ctx, String cmd) {
+        if ("adb".equals(privMode)) {
+            try {
+                return Adb.shell(ctx, cmd);
+            } catch (Exception e) {
+                Log.w("navisplit", "adb shell failed: " + e);
+                return "";
+            }
+        }
+        return runSu(cmd);
     }
 
     /** Run one command as root; returns stdout ("" if su is absent/denied). */
@@ -141,6 +184,11 @@ public class Launcher {
         Point p = new Point();
         wm.getDefaultDisplay().getRealSize(p);
         return p;
+    }
+
+    static int statusBarHeight(Context ctx) {
+        int id = ctx.getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? ctx.getResources().getDimensionPixelSize(id) : 0;
     }
 
     static int navBarHeight(Context ctx) {

@@ -4,6 +4,11 @@
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="25" />
 
+    <!-- re-enables wireless adb after a reboot; grant once: pm grant ... WRITE_SECURE_SETTINGS -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+
     <!-- see other launchable apps for the scenario picker -->
     <queries>
         <intent>
@@ -44,6 +49,14 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- desktop widget provider -->
         <receiver

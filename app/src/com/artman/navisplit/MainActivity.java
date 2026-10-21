@@ -72,6 +72,15 @@ public class MainActivity extends Activity {
         alp.topMargin = dp(16);
         root.addView(add, alp);
 
+        Button closeAll = new Button(this);
+        closeAll.setText("✕ Закрыть все окна");
+        closeAll.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        closeAll.setOnClickListener(v -> Launcher.closeAll(this));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clp.topMargin = dp(10);
+        root.addView(closeAll, clp);
+
         TextView hint = new TextView(this);
         hint.setText("Короткий тап — запустить. Долгий тап — изменить или удалить.\n"
                 + "Плитки на рабочий стол: добавь виджет «Мультиокно» и выбери сценарий.");
