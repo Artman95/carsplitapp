@@ -83,11 +83,21 @@ apps open side by side in freeform ("split").
   (verified: a second launch and `FLAG_ACTIVITY_CLEAR_TASK` don't help either). The working
   recipe is two steps, in order: `am start --windowingMode 5 -n <component>` (flip the task to
   freeform) then `am task resize <taskId> L T R B` (resize is a no-op unless the task is already
-  freeform). `Launcher.java` runs this via `su` when available, else falls back to the
-  `ActivityOptions` path (fresh-launch only).
+  freeform). `Launcher.java` runs this via `su` when available, else via the **shell uid** over
+  the box's own adbd (`Adb.java`, a minimal adb client on `127.0.0.1:5555` — shell is enough, no
+  root), else falls back to the `ActivityOptions` path (fresh-launch only). Close windows with
+  `am stack remove <id>` (stack ids from `am stack list`). Find a task by activity package in
+  `am stack list`, NOT by `dumpsys` task affinity: Apple Music's affinity is random text.
 - **Device (the box):** Qualcomm `trinket` (SM6125), Android 13 / API 33 (release string "14" is
   fake), 1920×716 landscape, A/B (active slot `_b`, patch `boot_b`), bootloader unlocked (orange),
-  no root yet.
+  no root yet. It is a CarPlay box (`XQ_CarPlayBox1`, board APM-6125-T7-Dual-V1.0, SIMCom SIM8971
+  module). Its only USB controller (`dwc3`) runs in **host** mode with the Wi-Fi Realtek chip on
+  it, so the USB-C port does not enumerate on the Mac: there is no fastboot/USB path; everything
+  goes over Wi-Fi adb. The ◁○□ bar is a third-party overlay (`nu.nav.bar`, 32dp), not a system inset.
 - **adb:** over Wi-Fi on port 5555; the box IP drifts (host stays `.163`, subnet changes) — Mac and
   box must share one hotspot. On "device offline"/"connection refused" after a good ping, retry or
-  `adb kill-server && adb start-server`.
+  `adb kill-server && adb start-server`. The box resets `adb_wifi_enabled` on every boot;
+  `BootReceiver` re-enables it (needs `pm grant com.artman.navisplit
+  android.permission.WRITE_SECURE_SETTINGS` once), port 5555 opens ~1 min after boot. The adb
+  toolchain lives in the main checkout (`/Users/art/Claude/code/freeform/toolchain`); a worktree
+  needs an APFS clone of it (`cp -Rc`), because `build.sh` uses `find` which won't follow a symlink.

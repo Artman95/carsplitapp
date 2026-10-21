@@ -88,6 +88,12 @@ public class MainActivity extends Activity {
         hint.setPadding(0, dp(12), 0, 0);
         root.addView(hint);
 
+        TextView version = new TextView(this);
+        version.setText("Версия " + versionName());
+        version.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        version.setPadding(0, dp(8), 0, 0);
+        root.addView(version);
+
         setContentView(scroll);
         renderList();
     }
@@ -228,6 +234,14 @@ public class MainActivity extends Activity {
     int indexOfPkg(List<String[]> apps, String pkg) {
         for (int i = 0; i < apps.size(); i++) if (apps.get(i)[1].equals(pkg)) return i;
         return 0;
+    }
+
+    String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "?";
+        }
     }
 
     int dp(int v) {
