@@ -33,7 +33,9 @@ public class Launcher {
         final Context app = ctx.getApplicationContext();
         // su/adb calls block; never run them on the UI thread
         new Thread(() -> {
-            if (!tilePairPrivileged(app, s)) {
+            if (hasPriv(app)) {
+                tilePairPrivileged(app, s);
+            } else {
                 new Handler(Looper.getMainLooper()).post(() -> launchNonRoot(app, s));
             }
         }).start();
@@ -57,9 +59,7 @@ public class Launcher {
 
     // ---- privileged path (root or adb shell): re-tiles even ALREADY-RUNNING apps ----
 
-    /** @return true if it handled the launch; false to fall back to the non-root path. */
-    static boolean tilePairPrivileged(Context ctx, Scenario s) {
-        if (!hasPriv(ctx)) return false;
+    static void tilePairPrivileged(Context ctx, Scenario s) {
         Point sz = realSize(ctx);
         int w = sz.x;
         // below the status bar and above the navigation bar, like the non-root path
@@ -68,17 +68,16 @@ public class Launcher {
         int gap = Math.round(4 * density);
         int bottom = sz.y - Math.max(navBarHeight(ctx), Math.round(OVERLAY_NAV_BAR_DP * density)) - gap;
         int split = Math.round(w * s.leftPercent / 100f);
-        boolean left = tilePrivileged(ctx, s.left, 0, top, split, bottom);
-        boolean right = tilePrivileged(ctx, s.right, split, top, w, bottom);
-        return left && right;
+        tilePrivileged(ctx, s.left, 0, top, split, bottom);
+        tilePrivileged(ctx, s.right, split, top, w, bottom);
     }
 
     /** am start --windowingMode 5 flips/launches the task into freeform; am task resize then
      *  applies the tile bounds (a no-op on a fullscreen task, hence the windowing-mode flip first). */
-    static boolean tilePrivileged(Context ctx, String pkg, int l, int t, int r, int b) {
+    static void tilePrivileged(Context ctx, String pkg, int l, int t, int r, int b) {
         Intent li = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
         ComponentName cn = li == null ? null : li.getComponent();
-        if (cn == null) { toast(ctx, "Не найдено: " + pkg); return false; }
+        if (cn == null) { toast(ctx, "Не найдено: " + pkg); return; }
         runPriv(ctx, "am start --windowingMode " + WINDOWING_MODE_FREEFORM
                 + " -n " + cn.getPackageName() + "/" + cn.getClassName());
         String tid = null;
@@ -86,14 +85,18 @@ public class Launcher {
             tid = taskIdOf(ctx, pkg);
             if (tid == null) sleep(300);
         }
-        if (tid == null) { Log.w("navisplit", "no taskId for " + pkg); return false; }
+        if (tid == null) {
+            Log.w("navisplit", "no taskId for " + pkg);
+            toast(ctx, "Окно не найдено: " + pkg);
+            return;
+        }
         runPriv(ctx, "am task resize " + tid + " " + l + " " + t + " " + r + " " + b);
-        return true;
     }
 
+    /** Matches by the task's activity package, not its affinity (Apple Music's affinity is random text). */
     static String taskIdOf(Context ctx, String pkg) {
-        Matcher m = Pattern.compile("#(\\d+) type=standard A=\\d+:" + Pattern.quote(pkg) + "(?:\\s|$)")
-                .matcher(runPriv(ctx, "dumpsys activity activities"));
+        Matcher m = Pattern.compile("taskId=(\\d+): " + Pattern.quote(pkg) + "/")
+                .matcher(runPriv(ctx, "am stack list"));
         return m.find() ? m.group(1) : null;
     }
 
